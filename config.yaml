@@ -1,0 +1,112 @@
+# ============================================================================
+# Fonte ÚNICA dos parâmetros do experimento.
+# Os nomes em MAIÚSCULAS são os mesmos do notebook v5, para facilitar a conferência.
+# Alterar um valor aqui muda todos os notebooks: não redefina nada dentro deles.
+# ============================================================================
+
+# Nome da execução. Cada execução grava em execucoes/<EXECUCAO>/ e não mistura
+# resultados com versões anteriores (mesma ideia do OUT_DIR do v5).
+EXECUCAO: v6_modular
+
+CAMINHOS:
+  dados_olist: dados_brutos/olist          # os três CSVs do Olist (somente leitura)
+  macro_cache: dados_brutos/macro_cache    # séries SGS baixadas UMA vez e reutilizadas (vintage fixa)
+  artefatos: execucoes/{EXECUCAO}/artefatos   # contratos entre notebooks (.parquet/.json + .meta.json)
+  saidas: execucoes/{EXECUCAO}/saidas         # tabelas e figuras para o texto do TCC
+
+# ---- Reprodutibilidade -------------------------------------------------------
+RANDOM_SEED: 42
+N_THREADS: 1               # uma thread: CatBoost/LightGBM/torch reprodutíveis
+DETERMINISM_TOL: 1.0e-8
+RECOMMENDED_VERSIONS:      # ambiente de referência; divergências geram aviso
+  pandas: "2.2.3"
+  numpy: "2.1.3"
+  scikit-learn: "1.6.1"
+  catboost: "1.2.10"
+
+# ---- Variáveis exógenas (seção 5.1) -----------------------------------------
+USE_EXOGENOUS: true
+MACRO_LAG_MONTHS: 2
+MACRO_SERIES:
+  macro_ipca: 433      # IPCA — variação mensal (%)
+  macro_ibcbr: 24363   # IBC-Br — índice de atividade econômica
+  macro_icc: 4393      # ICC — confiança do consumidor
+  macro_selic: 4390    # Selic acumulada no mês (%)
+MACRO_SOURCE: "Banco Central do Brasil — SGS/BCData"
+EXOGENOUS_API_START: "2016-01-01"
+EXOGENOUS_API_END: "2018-12-31"
+
+# ---- Corte temporal (seções 5, 6 e 11) --------------------------------------
+TRAIN_END: "2017-12-31"          # último dia usado para definir a coorte
+TRAIN_TARGET_END: "2017-12-25"   # última semana-alvo do treino (seg 25/12 a dom 31/12)
+PANEL_START: "2017-01-02"        # lacuna da base no fim de 2016
+
+# ---- Data do alvo (seções 1–5) ----------------------------------------------
+APPROVED_MISSING_MAX_SHARE: 0.05
+TAIL_GAP_DAYS: 3
+TAIL_MAX_ORDERS: 5
+
+# ---- Coorte (seção 6) ---------------------------------------------------------
+MIN_CALENDAR_WEEKS: 12
+MIN_SALES_WEEKS: 4
+USE_MEI_PROXY: false
+MEI_MONTHLY_PROXY_LIMIT: 6750.00
+
+# ---- Teste de vazamento (seção 8) --------------------------------------------
+LEAK_TEST_CUT: "2017-09-04"
+
+# ---- Validação e seleção (seções 14–16) -------------------------------------
+PRIMARY_LEVEL: seller
+CV_FIRST_ORIGIN: "2017-06-26"   # segunda-feira
+CV_STEP_WEEKS: 4
+CV_VAL_WEEKS: 4
+RIDGE_ALPHAS: [10, 100, 1000, 10000]
+PRACTICAL_TIE_TOL: 0.01
+MODEL_COMPLEXITY:               # ordem de simplicidade usada no desempate prático
+  Naive: 0
+  MediaMovel4: 1
+  Ridge: 2
+  HistGB_MAE: 3
+  HistGB_Poisson: 3
+  LightGBM_MAE: 3
+  LightGBM_MAE_Exog: 3
+  CatBoost_MAE: 4
+  CatBoost_MAE_raw: 4
+  CatBoost_Tweedie: 4
+  CatBoost_MAE_Exog: 4
+
+# ---- Inferência (seções 18–19) ------------------------------------------------
+MIN_WEEKS_DM: 20
+N_BOOT: 1000
+
+# ---- Diagnóstico (seção 23) ----------------------------------------------------
+# "escolhido" = usa o modelo gravado em selecao_modelo.json (correção do v5,
+# que fixava CatBoost_MAE mesmo quando a seleção escolhia outro modelo).
+DIAG_MODELO_PRINCIPAL: escolhido
+
+# ---- Experimento 1 (seção 24) ------------------------------------------------------
+CALIBRATION_ERROR_MULT: 1.10
+CALIBRATION_BIAS_FLOOR_SHARE: 0.10
+MIN_SELLER_COMPLIANCE: 0.80
+STAB_MIN_ORIGINS: 4
+G_MASE_TOL: 0.01
+G_FALSE_SIGNAL_PP: 2.0
+G_WAPE_TOL: 0.05
+G_MIN_ORIGINS: 4
+G_MIN_SHARE: 0.5
+P_MIN_DELTA: 0.02
+P_MIN_ORIGINS: 4
+P_MIN_REG_SHARE: 0.5
+CORR_MAX: 0.95
+
+# ---- Análise secundária ------------------------------------------------------------
+ARIMA_SELLER_ORDERS: [[1, 0, 0], [0, 0, 1], [1, 0, 1]]
+ARIMA_AGG_ORDERS: [[1, 1, 0], [0, 1, 1], [1, 1, 1], [2, 1, 0], [0, 1, 2]]
+SARIMA_SEASONAL_PERIOD: 4
+SARIMA_SEASONAL_CANDIDATES: [[1, 0, 0], [0, 0, 1]]
+SEC_EXOG_CAL: [cal_any_holiday, cal_any_commercial, cal_commercial_black_friday]
+SEC_MIN_OBS_PER_PARAM: 3
+SEC_N_JOBS: -1
+LSTM_SEQ_LEN: 8
+LSTM_MAX_EPOCHS: 30
+LSTM_HOLDOUT_WEEKS: 8

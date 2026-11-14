@@ -1,0 +1,16 @@
+# Versões usadas na verificação da v6. No Colab, `pip install -r requirements.txt` na célula de setup.
+# Para reproduzir números do v5, prefira o ambiente de referência do config.yaml (RECOMMENDED_VERSIONS).
+pandas>=2.2
+numpy>=2.1
+scikit-learn>=1.6
+scipy>=1.13
+catboost==1.2.10
+lightgbm==4.7.0
+statsmodels>=0.14
+prophet>=1.1
+torch>=2.3
+pyarrow>=15
+pyyaml>=6
+matplotlib>=3.8
+requests>=2.31
+joblib>=1.3
