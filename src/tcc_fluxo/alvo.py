@@ -187,3 +187,47 @@ def corte_test_end(order_seller_revenue, weekly_observed, date_col, tail_gap_day
         "residual_orders": int(daily.loc[residual_days].sum()) if residual_days else 0,
         "removed_weeks": removed, "weeks_info": weeks_info, "daily": daily,
     }
+
+
+def comparar_status(osr, cohort_ids, panel_start, test_end, train_target_end):
+    """Compara duas definições do alvo na coorte: todos os pedidos aprovados (atual) × só 'delivered'.
+
+    Usa o status FINAL de cada pedido na base (fotografia da extração). Descritivo: não ajusta modelos.
+    """
+    o = osr.loc[osr["seller_id"].isin(cohort_ids) & osr["week_start"].between(panel_start, test_end)].copy()
+    o["entregue"] = o["order_status"].eq("delivered")
+    o["periodo"] = np.where(o["week_start"] <= train_target_end, "treino (2017)", "teste (2018)")
+
+    por_status = (o.groupby("order_status")
+                  .agg(pedidos=("order_id", "nunique"), valor=("allocated_revenue", "sum"))
+                  .sort_values("valor", ascending=False))
+    por_status["pct_valor"] = 100 * por_status["valor"] / por_status["valor"].sum()
+
+    def _perda(g):
+        tot = g["allocated_revenue"].sum()
+        fora = g.loc[~g["entregue"], "allocated_revenue"].sum()
+        return pd.Series({"valor_todos": tot, "valor_so_entregues": tot - fora, "pct_removido": 100 * fora / tot})
+
+    por_periodo = o.groupby("periodo")[["allocated_revenue", "entregue"]].apply(_perda)
+    por_semana = o.groupby("week_start")[["allocated_revenue", "entregue"]].apply(_perda).reset_index()
+
+    a = o.groupby(["seller_id", "week_start"])["allocated_revenue"].sum()
+    b = (o.loc[o["entregue"]].groupby(["seller_id", "week_start"])["allocated_revenue"].sum()
+         .reindex(a.index, fill_value=0.0))
+    por_vendedor = pd.DataFrame({"valor_todos": a.groupby(level=0).sum(), "valor_so_entregues": b.groupby(level=0).sum()})
+    por_vendedor["pct_removido"] = 100 * (1 - por_vendedor["valor_so_entregues"] / por_vendedor["valor_todos"])
+    por_vendedor = por_vendedor.sort_values("pct_removido", ascending=False).reset_index()
+
+    tot_a, tot_b = a.groupby(level=1).sum(), b.groupby(level=1).sum()
+    resumo = {
+        "pct_valor_removido_total": float(100 * (1 - b.sum() / a.sum())),
+        "pct_valor_cancelado": float(por_status["pct_valor"].get("canceled", 0.0)),
+        "pct_vendedor_semanas_com_valor_que_mudam": float(100 * (~np.isclose(a.to_numpy(), b.to_numpy())).mean()),
+        "vendedor_semanas_que_viram_zero": int(((a > 0) & (b == 0)).sum()),
+        "vendedores_com_mais_de_5pct_removido": int((por_vendedor["pct_removido"] > 5).sum()),
+        "vendedores_com_mais_de_20pct_removido": int((por_vendedor["pct_removido"] > 20).sum()),
+        "correlacao_total_semanal": float(np.corrcoef(tot_a, tot_b)[0, 1]),
+        "maior_pct_removido_numa_semana": float(por_semana["pct_removido"].max()),
+    }
+    return {"resumo": resumo, "por_status": por_status.reset_index(), "por_periodo": por_periodo.reset_index(),
+            "por_semana": por_semana, "por_vendedor": por_vendedor}

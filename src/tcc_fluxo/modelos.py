@@ -50,56 +50,71 @@ def _catboost(loss, spec):
                              allow_writing_files=False)
 
 
-def fit_predict(name, fit_df, pred_df, spec: Especificacao):
-    """Treina e devolve previsões brutas. *_MAE usam MAE sobre log1p; CatBoost_MAE_raw usa MAE em reais."""
+def ajustar(name, fit_df, spec: Especificacao):
+    """Treina o modelo `name` e devolve uma função prever(pred_df) -> previsões brutas.
+
+    *_MAE usam MAE sobre log1p; CatBoost_MAE_raw usa MAE em reais. Treinar uma vez e prever várias vezes
+    é o que permite a previsão recursiva de várias semanas (notebook 11).
+    """
     T = spec.target
     y_raw = fit_df[T].clip(lower=0).to_numpy(float)
     y_log = np.log1p(y_raw)
 
     if name == "Naive":
-        return pred_df["revenue_current"].to_numpy(float)
+        return lambda pred_df: pred_df["revenue_current"].to_numpy(float)
     if name == "MediaMovel4":
-        return pred_df[["revenue_current", "rev_lag_1", "rev_lag_2", "rev_lag_3"]].mean(axis=1).to_numpy(float)
+        return lambda pred_df: pred_df[["revenue_current", "rev_lag_1", "rev_lag_2", "rev_lag_3"]].mean(axis=1).to_numpy(float)
     if name.startswith("Ridge_a"):
         alpha = float(name.split("_a")[1])
         pre = ColumnTransformer([("num", StandardScaler(), spec.numeric),
                                  ("cat", OneHotEncoder(handle_unknown="ignore"), spec.cat)])
         model = Pipeline([("pre", pre), ("model", Ridge(alpha=alpha))])
         model.fit(_xcat(fit_df, spec), y_log)
-        with np.errstate(over="ignore"):
-            return np.expm1(model.predict(_xcat(pred_df, spec)))
+
+        def prever(pred_df):
+            with np.errstate(over="ignore"):
+                return np.expm1(model.predict(_xcat(pred_df, spec)))
+        return prever
     if name == "HistGB_MAE":
         model = HistGradientBoostingRegressor(loss="absolute_error", max_iter=500, learning_rate=0.03, max_depth=6,
                                               l2_regularization=5.0, random_state=spec.seed)
         model.fit(fit_df[spec.numeric], y_log)
-        return np.expm1(model.predict(pred_df[spec.numeric]))
+        return lambda pred_df: np.expm1(model.predict(pred_df[spec.numeric]))
     if name == "HistGB_Poisson":
         model = HistGradientBoostingRegressor(loss="poisson", max_iter=500, learning_rate=0.03, max_depth=6,
                                               l2_regularization=5.0, random_state=spec.seed)
         model.fit(fit_df[spec.numeric], y_raw)
-        return model.predict(pred_df[spec.numeric])
+        return lambda pred_df: model.predict(pred_df[spec.numeric])
     if name in {"LightGBM_MAE", "LightGBM_MAE_Exog"}:
         feats = _features_for_model(name, spec)
         model = LGBMRegressor(objective="regression_l1", n_estimators=500, learning_rate=0.03, num_leaves=31,
                               max_depth=-1, min_child_samples=20, reg_lambda=5.0, random_state=spec.seed,
                               n_jobs=spec.n_threads, verbosity=-1)
         model.fit(fit_df[feats], y_log)
-        with np.errstate(over="ignore"):
-            return np.expm1(model.predict(pred_df[feats]))
+
+        def prever(pred_df):
+            with np.errstate(over="ignore"):
+                return np.expm1(model.predict(pred_df[feats]))
+        return prever
     if name in {"CatBoost_MAE", "CatBoost_MAE_Exog"}:
         feats = _features_for_model(name, spec)
         model = _catboost("MAE", spec)
         model.fit(_xcat(fit_df, spec, feats), y_log, cat_features=spec.cat)
-        return np.expm1(model.predict(_xcat(pred_df, spec, feats)))
+        return lambda pred_df: np.expm1(model.predict(_xcat(pred_df, spec, feats)))
     if name == "CatBoost_MAE_raw":
         model = _catboost("MAE", spec)
         model.fit(_xcat(fit_df, spec), y_raw, cat_features=spec.cat)
-        return model.predict(_xcat(pred_df, spec))
+        return lambda pred_df: model.predict(_xcat(pred_df, spec))
     if name == "CatBoost_Tweedie":
         model = _catboost("Tweedie:variance_power=1.5", spec)
         model.fit(_xcat(fit_df, spec), y_raw, cat_features=spec.cat)
-        return model.predict(_xcat(pred_df, spec), prediction_type="Exponent")
+        return lambda pred_df: model.predict(_xcat(pred_df, spec), prediction_type="Exponent")
     raise ValueError(name)
+
+
+def fit_predict(name, fit_df, pred_df, spec: Especificacao):
+    """Treina e devolve previsões brutas (mesmo comportamento do v5)."""
+    return ajustar(name, fit_df, spec)(pred_df)
 
 
 def check_and_clip(raw):

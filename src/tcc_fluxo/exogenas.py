@@ -95,7 +95,59 @@ def fourth_friday_november(year):
     return nth_weekday(year, 11, weekday=4, n=4)
 
 
-def calendario_eventos(years):
+CHAVES_BRASILAPI = [  # trecho do nome na BrasilAPI (sem acento, minúsculo) -> evento do projeto
+    ("confraternizacao", "holiday_new_year"), ("carnaval", "holiday_carnival"),
+    ("sexta", "holiday_good_friday"), ("paixao", "holiday_good_friday"), ("pascoa", "holiday_easter"),
+    ("corpus", "holiday_corpus_christi"), ("tiradentes", "holiday_tiradentes"), ("trabalho", "holiday_labor_day"),
+    ("independencia", "holiday_independence"), ("aparecida", "holiday_children_day"), ("finados", "holiday_all_souls"),
+    ("republica", "holiday_republic"), ("natal", "holiday_christmas"), ("consciencia", "holiday_consciencia_negra"),
+]
+
+
+def chave_brasilapi(nome):
+    import unicodedata
+    n = unicodedata.normalize("NFKD", str(nome)).encode("ascii", "ignore").decode().lower()
+    return next((ev for trecho, ev in CHAVES_BRASILAPI if trecho in n), None)
+
+
+def feriados_brasilapi(ano, cache_dir, atualizar=False):
+    """Feriados nacionais de um ano pela BrasilAPI. Lê de cache_dir/<ano>.json; só baixa se faltar o arquivo
+    (ou com atualizar=True). O cache versionado garante que todas as execuções usem a mesma resposta."""
+    import json
+    cache_dir = Path(cache_dir)
+    arq = cache_dir / f"{ano}.json"
+    if arq.is_file() and not atualizar:
+        dados = json.loads(arq.read_text(encoding="utf-8"))
+    else:
+        import requests
+        r = requests.get(f"https://brasilapi.com.br/api/feriados/v1/{ano}", timeout=20,
+                         headers={"User-Agent": "tcc-fluxo"})
+        r.raise_for_status()
+        dados = r.json()
+        if not isinstance(dados, list) or not dados:
+            raise RuntimeError(f"BrasilAPI não retornou feriados para {ano}: {str(dados)[:200]}")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        arq.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    out = {}
+    for h in dados:
+        ev = chave_brasilapi(h.get("name"))
+        if ev is None:
+            raise RuntimeError(f"Feriado da BrasilAPI sem correspondência no projeto: {h}. "
+                               "Inclua-o em CHAVES_BRASILAPI antes de continuar.")
+        out.setdefault(ev, []).append(pd.Timestamp(h["date"]).normalize())
+    return {ev: sorted(ds) for ev, ds in out.items()}
+
+
+def calendario_eventos(years, fonte_feriados="calculado", cache_dir=None, atualizar=False):
+    """Datas de feriados e datas comerciais.
+
+    fonte_feriados="calculado": feriados calculados no código (datas móveis pela Páscoa).
+    fonte_feriados="brasilapi": feriados da BrasilAPI (cache em cache_dir). As datas comerciais
+    (Dia das Mães, Black Friday etc.) não existem na API e são sempre calculadas.
+    Nos dois casos, os eventos saem na mesma ordem, o que mantém a mesma ordem de colunas nos atributos.
+    """
+    if fonte_feriados not in {"calculado", "brasilapi"}:
+        raise ValueError("fonte_feriados deve ser 'calculado' ou 'brasilapi'")
     rows = []
     for year in years:
         easter = easter_sunday(year)
@@ -118,8 +170,19 @@ def calendario_eventos(years):
             "holiday_christmas": pd.Timestamp(year=year, month=12, day=25),
             "commercial_consumer_day": pd.Timestamp(year=year, month=3, day=15),
         }
-        for event, date in dates.items():
-            rows.append({"date": date, "evento": event, "ano": year})
+        if fonte_feriados == "calculado":
+            for event, date in dates.items():
+                rows.append({"date": date, "evento": event, "ano": year})
+            continue
+        api = feriados_brasilapi(year, cache_dir, atualizar)
+        for event, date in dates.items():                       # mesma ordem de eventos do cálculo
+            if event.startswith("holiday_"):
+                for d in api.pop(event, []):
+                    rows.append({"date": d, "evento": event, "ano": year})
+            else:
+                rows.append({"date": date, "evento": event, "ano": year})
+        for event, ds in api.items():                           # feriados que só a API tem (ex.: 20/11 a partir de 2024)
+            rows.extend({"date": d, "evento": event, "ano": year} for d in ds)
     return pd.DataFrame(rows).drop_duplicates(["date", "evento"]).sort_values("date")
 
 

@@ -39,8 +39,15 @@ class Config:
     def __setattr__(self, key, value):
         raise AttributeError("Config é somente leitura: altere o config.yaml")
 
+    def get(self, key, default=None):
+        return self._d.get(key, default)
+
     def caminho(self, nome: str) -> Path:
-        rel = self._d["CAMINHOS"][nome].format(EXECUCAO=self._d["EXECUCAO"])
+        padrao = {"brasilapi_feriados": "dados_brutos/brasilapi_feriados"}   # chaves novas, para configs antigos
+        rel = self._d["CAMINHOS"].get(nome, padrao.get(nome))
+        if rel is None:
+            raise KeyError(f"caminho '{nome}' não existe em CAMINHOS no config.yaml")
+        rel = rel.format(EXECUCAO=self._d["EXECUCAO"])
         return (self.RAIZ / rel).resolve()
 
     def como_dict(self) -> dict:

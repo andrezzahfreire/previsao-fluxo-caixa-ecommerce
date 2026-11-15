@@ -359,9 +359,52 @@ def rodar_lstms(janelas, train, test, variants, C):
     return preds, pd.DataFrame(info), y_scale
 
 
+# --------------------------------------------------------------------- seasonal naive
+def seasonal_naive(comparison, serie_completa, lag_semanas=52):
+    """Prevê a semana-alvo com a receita da mesma semana do ano anterior (target_week − 52 semanas).
+
+    Referência complementar, só no teste: as origens de validação de 2017 não têm 52 semanas de histórico.
+    Sem a semana t−52 (vendedor ainda não estava no painel), usa o Naive. Devolve (previsões, máscara de disponibilidade).
+    """
+    receita = serie_completa.set_index(["seller_id", "week_start"])["revenue"]
+    chaves = pd.MultiIndex.from_arrays([comparison["seller_id"].to_numpy(),
+                                        (comparison["target_week"] - pd.Timedelta(weeks=lag_semanas)).to_numpy()])
+    sazonal = receita.reindex(chaves).to_numpy(float)
+    disponivel = np.isfinite(sazonal)
+    return np.where(disponivel, sazonal, comparison["pred_Naive"].to_numpy(float)), disponivel
+
+
+def avaliar_snaive(comparison, chosen, pred_snaive, disponivel, scale_final, agg_scale_final):
+    """Tabela do seasonal naive: teste completo (com Naive onde falta t−52) e só linhas com t−52."""
+    df = comparison[["seller_id", "target_week", TARGET, "pred_Naive", "pred_MediaMovel4", f"pred_{chosen}"]].copy()
+    df["pred_SNaive_52"] = pred_snaive
+    models = list(dict.fromkeys(["Naive", "SNaive_52", "MediaMovel4", chosen]))
+    from .metricas import evaluate_aggregate
+    linhas = []
+    for recorte, d in [("teste completo (Naive onde falta t-52)", df), ("só linhas com t-52 disponível", df.loc[disponivel])]:
+        pooled, per = evaluate_seller_level(d, models, scale_final)
+        summ = summarize_sellers(per).set_index("modelo")
+        agg, _ = evaluate_aggregate(d, models, agg_scale_final)
+        agg = agg.set_index("modelo")
+        for m in models:
+            linhas.append({"recorte": recorte, "modelo": m, "linhas": len(d), "vendedores": d["seller_id"].nunique(),
+                           "MAE": float(pooled.set_index("modelo").loc[m, "MAE"]),
+                           "skill_vs_naive": float(pooled.set_index("modelo").loc[m, "skill_vs_naive"]),
+                           "MASE_medio_vendedor": float(summ.loc[m, "MASE_media"]),
+                           "prop_vendedores_melhora": float(summ.loc[m, "prop_vendedores_melhora"]),
+                           "WAPE_agregado": float(agg.loc[m, "WAPE"]), "MASE_agregado": float(agg.loc[m, "MASE"])})
+    cobertura = {"pct_linhas_com_t52": float(disponivel.mean()), "linhas_com_t52": int(disponivel.sum()),
+                 "linhas_teste": int(len(disponivel)),
+                 "vendedores_com_t52_em_todas_as_semanas": int(pd.Series(disponivel).groupby(
+                     comparison["seller_id"].to_numpy()).all().sum()),
+                 "vendedores": int(comparison["seller_id"].nunique())}
+    return pd.DataFrame(linhas), cobertura
+
+
 # ------------------------------------------------------------------------- avaliação
 SEC_FAMILY_BASE = {
     "Naive": ("baseline", "-"),
+    "SNaive_52": ("baseline sazonal", "-"),
     "ARIMA_vendedor": ("ARIMA", "univariada"), "ARIMAX_vendedor": ("ARIMA", "multivariada"),
     "SARIMA_vendedor": ("SARIMA", "univariada"), "SARIMAX_vendedor": ("SARIMA", "multivariada"),
     "LSTM_uni": ("LSTM", "univariada"), "LSTM_global": ("LSTM", "intermediária"),
@@ -378,10 +421,16 @@ def familias(chosen):
     return fam
 
 
-def avaliar(comparison, chosen, ts_seller_pred, lstm_preds, agg_preds, aggregate, scale_final, agg_scale_final):
+def avaliar(comparison, chosen, ts_seller_pred, lstm_preds, agg_preds, aggregate, scale_final, agg_scale_final,
+            extras=None):
+    """extras: {nome: previsões alinhadas com comparison} — referências complementares, como o SNaive_52."""
+    extras = extras or {}
     fam = familias(chosen)
-    models = list(dict.fromkeys(["Naive", chosen, *SEC_TS_SELLER_MODELS, "LSTM_uni", "LSTM_global", "LSTM_multi"]))
+    models = list(dict.fromkeys(["Naive", *extras, chosen, *SEC_TS_SELLER_MODELS, "LSTM_uni", "LSTM_global",
+                                 "LSTM_multi"]))
     sec = comparison[["seller_id", "week_start", "target_week", TARGET, "pred_Naive", f"pred_{chosen}"]].copy()
+    for nome, pred in extras.items():
+        sec[f"pred_{nome}"] = np.asarray(pred, float)
     sec = sec.merge(ts_seller_pred, on=["seller_id", "target_week"], how="left", validate="one_to_one")
     clip_rows = []
     for m in SEC_TS_SELLER_MODELS:
@@ -399,7 +448,7 @@ def avaliar(comparison, chosen, ts_seller_pred, lstm_preds, agg_preds, aggregate
                                     "prop_vendedores_melhora"]], on="modelo")
     sec_seller.insert(1, "familia", [fam[m][0] for m in sec_seller["modelo"]])
     sec_seller.insert(2, "tipo", [fam[m][1] for m in sec_seller["modelo"]])
-    sec_seller.insert(1, "experimento", ["baseline" if m == "Naive" else
+    sec_seller.insert(1, "experimento", ["baseline" if m in ("Naive", *extras) else
                                          ("principal (escolhido)" if m == chosen else "secundário")
                                          for m in sec_seller["modelo"]])
 

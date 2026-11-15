@@ -18,6 +18,8 @@ tcc_fluxo/
 ├── execucoes/<EXECUCAO>/    ← criado ao rodar
 │   ├── artefatos/           ← contratos entre notebooks (.parquet/.json + .meta.json com sha256)
 │   └── saidas/              ← tabelas .csv e figuras .png para o texto do TCC
+├── rodar_tudo.py            ← executa os notebooks em ordem, sem abrir o VS Code
+├── prototipo/app.py         ← protótipo Streamlit de apoio à decisão (lê as saídas da execução)
 └── ferramentas/gerar_dados_sinteticos.py   ← dados falsos no formato Olist, para testar o pipeline
 ```
 
@@ -34,6 +36,34 @@ tcc_fluxo/
 
 Fora do Colab: defina a variável de ambiente `TCC_RAIZ` com o caminho da pasta, ou abra os notebooks de dentro dela.
 
+## Rodar tudo de uma vez (local)
+
+```powershell
+.venv\Scripts\python rodar_tudo.py              # 01 ao 09, para no primeiro erro
+.venv\Scripts\python rodar_tudo.py --de 05      # retoma a partir do 05
+.venv\Scripts\python rodar_tudo.py --so 06      # só um notebook
+```
+
+Os notebooks em `notebooks/` não são alterados. As cópias executadas, com todas as saídas, ficam em
+`execucoes/<EXECUCAO>/notebooks_executados/`, e os tempos em `execucoes/<EXECUCAO>/rodar_tudo.log`.
+
+## Protótipo (Streamlit)
+
+Depois de rodar até o notebook 05, na raiz do projeto:
+
+```powershell
+.venv\Scripts\python -m pip install -r prototipo\requirements.txt
+.venv\Scripts\python -m streamlit run prototipo\app.py
+```
+
+O app lê a execução indicada em `EXECUCAO` no `config.yaml`: as previsões semanais do teste (`previsoes_teste.csv`, notebook 05),
+as previsões das próximas 4 semanas (`acumulado_4_semanas.csv`, notebook 11; sem ele, só a opção "próxima semana"),
+o modelo escolhido e os modelos elegíveis. Ele não altera nenhum arquivo.
+
+Mostra **vendas aprovadas previstas**, com aviso de que não são dinheiro disponível, uma faixa provável baseada só em
+erros de períodos anteriores, a frequência com que a previsão acertou mais que a referência ingênua e um campo único
+de contas a pagar (semana ou 4 semanas). A comparação de modelos fica em "Detalhes técnicos".
+
 ## Ordem e contratos
 
 | Notebook | Seções do v5 | Lê | Grava | Teste |
@@ -49,6 +79,8 @@ Fora do Colab: defina a variável de ambiente `TCC_RAIZ` com o caminho da pasta,
 | `08b_secundaria_lstm` | secundária | treino, teste | LSTM global/uni/multi | secundário |
 | `08c_secundaria_avaliacao` | secundária | 05, 08a, 08b | métricas, univariada × multivariada | secundário |
 | `09_resumo_e_pacote` | 26–27 | tudo | `ambiente_execucao.json`, `.zip` | — |
+| `10_sensibilidade_status` | — | 01, 03 | `sensibilidade_status_*` | — (descritivo) |
+| `11_acumulado_4_semanas` | — | treino, série completa, 05 | `acumulado_4_semanas`, `acumulado_*` (usados pelo protótipo) | complementar |
 
 ## Garantias embutidas
 

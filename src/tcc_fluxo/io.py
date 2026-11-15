@@ -43,6 +43,19 @@ def _json_default(o):
     raise TypeError(f"não serializável: {type(o)}")
 
 
+def _ler_texto(path) -> str:
+    """Lê em UTF-8; aceita arquivos antigos gravados na codificação do Windows (cp1252)."""
+    raw = Path(path).read_bytes()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252")
+
+
+def _gravar_texto(path, texto: str):
+    Path(path).write_text(texto, encoding="utf-8")
+
+
 def _agora():
     return pd.Timestamp.now().isoformat(timespec="seconds")
 
@@ -70,7 +83,7 @@ class Artefatos:
             "notebook": self.notebook, "criado_em": _agora(),
             "entradas": dict(self._lidos), **extra,
         }
-        self._meta_path(nome).write_text(json.dumps(meta, indent=2, ensure_ascii=False, default=_json_default))
+        _gravar_texto(self._meta_path(nome), json.dumps(meta, indent=2, ensure_ascii=False, default=_json_default))
         self._gravados.append(arquivo.name)
         return meta
 
@@ -79,7 +92,7 @@ class Artefatos:
         if not mp.is_file():
             raise FileNotFoundError(
                 f"Artefato '{nome}' não existe em {self.dir}. Rode antes o notebook que o produz.")
-        meta = json.loads(mp.read_text())
+        meta = json.loads(_ler_texto(mp))
         p = self.dir / meta["arquivo"]
         sha = sha256_arquivo(p)
         if sha != meta["sha256"]:
@@ -92,7 +105,7 @@ class Artefatos:
         return self._meta_path(nome).is_file()
 
     def sha(self, nome) -> str:
-        return json.loads(self._meta_path(nome).read_text())["sha256"]
+        return json.loads(_ler_texto(self._meta_path(nome)))["sha256"]
 
     # ------------------------------------------------------------ dataframes
     def salvar_df(self, df: pd.DataFrame, nome: str, **extra):
@@ -107,16 +120,16 @@ class Artefatos:
     # ------------------------------------------------------------------ json
     def salvar_json(self, obj, nome: str):
         p = self.dir / f"{nome}.json"
-        p.write_text(json.dumps(obj, indent=2, ensure_ascii=False, default=_json_default))
+        _gravar_texto(p, json.dumps(obj, indent=2, ensure_ascii=False, default=_json_default))
         return self._gravar_meta(nome, p, {})
 
     def carregar_json(self, nome: str):
         p, _ = self._conferir(nome)
-        return json.loads(p.read_text())
+        return json.loads(_ler_texto(p))
 
     # -------------------------------------------------- saídas para o texto
     def tabela(self, df: pd.DataFrame, nome_csv: str, index=False):
-        df.to_csv(self.saidas / nome_csv, index=index)
+        df.to_csv(self.saidas / nome_csv, index=index, encoding="utf-8")
         return self.saidas / nome_csv
 
     def figura(self, fig, nome_png: str, **kw):

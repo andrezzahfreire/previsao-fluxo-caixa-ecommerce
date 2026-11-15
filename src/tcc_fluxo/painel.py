@@ -162,3 +162,17 @@ def perfis_treino(cohort):
     profile["freq_venda_treino"] = profile["sales_weeks"] / profile["calendar_weeks"]
     profile["perfil"] = pd.qcut(profile["freq_venda_treino"], 3, labels=["intermitente", "medio", "regular"])
     return profile
+
+
+def resumo_porte(cohort, limites: dict):
+    """Quantos vendedores da coorte passam de cada limite mensal (descritivo; não filtra ninguém).
+
+    Usa `avg_monthly_revenue_train`: receita do treino (2017) dividida pelos meses entre a primeira
+    semana com venda e TRAIN_END, ou seja, média proporcional ao período de atividade. A receita é a
+    proxy do alvo (pagamentos aprovados alocados, com frete), não o faturamento fiscal do vendedor.
+    """
+    m = cohort["avg_monthly_revenue_train"]
+    rows = [{"limite": nome, "limite_mensal_R$": float(v), "vendedores_acima": int((m > v).sum()),
+             "pct_coorte": float((m > v).mean()), "n_coorte": int(len(m))}
+            for nome, v in limites.items()]
+    return pd.DataFrame(rows)
