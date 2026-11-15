@@ -27,7 +27,7 @@ from nbclient.exceptions import CellExecutionError
 
 ORDEM = ["01_alvo", "02_exogenas", "03_painel", "04_validacao_selecao", "05_avaliacao_teste",
          "06_diagnostico", "07_experimento1", "08a_secundaria_estatisticos", "08b_secundaria_lstm",
-         "08c_secundaria_avaliacao", "09_resumo_e_pacote", "10_sensibilidade_status", "11_acumulado_4_semanas"]
+         "08c_secundaria_avaliacao", "09_resumo_e_pacote", "10_sensibilidade_status", "11_acumulado_4_semanas", "12_oe3_sazonalidade", "13_complementos_texto"]
 
 if sys.platform.startswith("win"):   # evita avisos/travamentos do asyncio com o Jupyter no Windows
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())

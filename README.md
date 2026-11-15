@@ -81,6 +81,8 @@ de contas a pagar (semana ou 4 semanas). A comparação de modelos fica em "Deta
 | `09_resumo_e_pacote` | 26–27 | tudo | `ambiente_execucao.json`, `.zip` | — |
 | `10_sensibilidade_status` | — | 01, 03 | `sensibilidade_status_*` | — (descritivo) |
 | `11_acumulado_4_semanas` | — | treino, série completa, 05 | `acumulado_4_semanas`, `acumulado_*` (usados pelo protótipo) | complementar |
+| 12_oe3_sazonalidade | OE3: receita semanal de 2017, lift por evento, Black Friday, feriados e peso do calendário no modelo (só treino) |
+| 13_complementos_texto | Números e figuras para o texto: funil da coorte, receita com os cortes, Tabela W, MASE validação × teste, ablação das exógenas |
 
 ## Garantias embutidas
 

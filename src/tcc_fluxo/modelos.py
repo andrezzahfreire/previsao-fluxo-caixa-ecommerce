@@ -95,12 +95,17 @@ def ajustar(name, fit_df, spec: Especificacao):
         def prever(pred_df):
             with np.errstate(over="ignore"):
                 return np.expm1(model.predict(pred_df[feats]))
+        prever.modelo, prever.atributos = model, list(feats)          # para importância dos atributos (notebook 12)
         return prever
     if name in {"CatBoost_MAE", "CatBoost_MAE_Exog"}:
         feats = _features_for_model(name, spec)
         model = _catboost("MAE", spec)
         model.fit(_xcat(fit_df, spec, feats), y_log, cat_features=spec.cat)
-        return lambda pred_df: np.expm1(model.predict(_xcat(pred_df, spec, feats)))
+
+        def prever(pred_df):
+            return np.expm1(model.predict(_xcat(pred_df, spec, feats)))
+        prever.modelo, prever.atributos = model, list(feats) + list(spec.cat)
+        return prever
     if name == "CatBoost_MAE_raw":
         model = _catboost("MAE", spec)
         model.fit(_xcat(fit_df, spec), y_raw, cat_features=spec.cat)
