@@ -129,3 +129,58 @@ def ablacao(comparison, hist, train_target_end, sem, com, n_boot, seed):
         if rows_wape:
             resumo.append(rows_wape)
     return pd.DataFrame(resumo)
+
+
+# ------------------------------------------------------------------ 6. ARIMA(X) por vendedor: previsões extremas
+def diagnostico_estat_extremos(pred, comparison, hist, perfis, mase_ref=None, fatores=(10, 5),
+                               modelos=("ARIMA_vendedor", "SARIMA_vendedor", "ARIMAX_vendedor", "SARIMAX_vendedor")):
+    """Por que ARIMAX/SARIMAX por vendedor somados têm erro agregado tão alto.
+
+    pred: previsões brutas por vendedor-semana (artefato da 08a, antes do corte em zero).
+    Mede (i) vendedores cuja previsão máxima no teste excede `fator` × a maior receita semanal do próprio
+    vendedor no treino e quanto do erro vem deles; (ii) o efeito do corte das previsões negativas em zero.
+    mase_ref: dict modelo -> MASE agregado da 08c; o MASE sem os extremos é proporcional ao MAE (mesma escala).
+    """
+    y = "target_next_week"
+    d = pred.merge(comparison[["seller_id", "target_week", y]], on=["seller_id", "target_week"], how="left")
+    assert d[y].notna().all()
+    max_treino = hist.groupby("seller_id")["revenue"].max()
+    perfil = perfis.set_index("seller_id")["perfil"].astype(str)
+    resumo, casos = [], []
+
+    def mae_agregado(p):
+        a = d.assign(p=p).groupby("target_week")[[y, "p"]].sum()
+        return float((a["p"] - a[y]).abs().mean()), float(a["p"].sum() / a[y].sum() - 1)
+
+    for m in modelos:
+        bruto = d[f"pred_{m}"].to_numpy(float)
+        p = np.clip(bruto, 0, None)
+        mae, vies = mae_agregado(p)
+        mae_sem_corte, vies_sem_corte = mae_agregado(bruto)
+        g = (d.assign(p=p, ae=np.abs(p - d[y])).groupby("seller_id")
+             .agg(prev_max=("p", "max"), erro_abs_soma=("ae", "sum"), real_soma=(y, "sum"), prev_soma=("p", "sum")))
+        g["max_receita_treino"] = g.index.map(max_treino)
+        g["razao_max"] = g["prev_max"] / g["max_receita_treino"]
+        g["perfil"] = g.index.map(perfil)
+        base = {"modelo": m, "MAE_agregado": mae, "vies_total_%": 100 * vies,
+                "previsoes_negativas_zeradas": int((bruto < 0).sum()),
+                "%_previsoes_negativas": 100 * float((bruto < 0).mean()),
+                "MAE_agregado_sem_corte_em_zero": mae_sem_corte, "vies_total_sem_corte_%": 100 * vies_sem_corte}
+        for k in fatores:
+            X = g.index[g["razao_max"] > k]
+            p2 = np.where(d["seller_id"].isin(X), d[y], p)        # erro desses vendedores zerado
+            mae2, _ = mae_agregado(p2)
+            cont = g.loc[X, "perfil"].value_counts()
+            linha = {**base, "fator": k, "vendedores_acima": len(X),
+                     "intermitentes": int(cont.get("intermitente", 0)), "medios": int(cont.get("medio", 0)),
+                     "regulares": int(cont.get("regular", 0)),
+                     "%_do_erro_abs_somado": 100 * float(g.loc[X, "erro_abs_soma"].sum() / g["erro_abs_soma"].sum()),
+                     "MAE_agregado_sem_erro_desses": mae2, "reducao_MAE_agregado_%": 100 * (1 - mae2 / mae)}
+            if mase_ref and m in mase_ref:
+                linha["MASE_agregado"] = mase_ref[m]
+                linha["MASE_agregado_sem_erro_desses"] = mase_ref[m] * mae2 / mae
+            resumo.append(linha)
+        pior = g.sort_values("erro_abs_soma", ascending=False).head(3).reset_index()
+        pior.insert(0, "modelo", m)
+        casos.append(pior)
+    return pd.DataFrame(resumo), pd.concat(casos, ignore_index=True)

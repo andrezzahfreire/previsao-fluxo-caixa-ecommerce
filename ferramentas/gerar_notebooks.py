@@ -863,7 +863,7 @@ nb("13_complementos_texto", "13 — Complementos para o texto do TCC",
    "só lê artefatos gravados pelos notebooks 01–05. Usa a série completa e as previsões do teste com "
    "finalidade *exploratória* (acesso registrado), depois da seleção congelada.  \n"
    "**Grava:** `fig_funil_coorte.png`, `fig_receita_cortes.png`, `funil_coorte.csv`, `tabela_w_perfis.csv`, "
-   "`mase_validacao_vs_teste.csv`, `ablacao_exogenas.csv`.",
+   "`mase_validacao_vs_teste.csv`, `ablacao_exogenas.csv`, `diagnostico_arimax_extremos.csv`, `diagnostico_arimax_piores_vendedores.csv`.",
    [
     ("code", '''from tcc_fluxo import complementos as CP, painel as P, graficos
 from tcc_fluxo.cv import origens_cv
@@ -941,4 +941,18 @@ assert f"pred_{SEM}" in comparison.columns, f"{SEM} sem previsões no teste"
 abl = CP.ablacao(comparison, hist, C.TRAIN_TARGET_END, SEM, CHOSEN, C.N_BOOT, C.RANDOM_SEED)
 A.tabela(abl, "ablacao_exogenas.csv"); display(abl.round(4))
 print("p > 0,05 em todas as linhas = sem diferença significativa entre os modelos com e sem exógenas.")'''),
+    ("md", "## 6. ARIMAX/SARIMAX por vendedor: previsões extremas (seção 5.7)\\n"
+           "Por que as versões com exógenas ajustadas por vendedor e somadas têm erro agregado tão alto: "
+           "(i) vendedores cuja previsão máxima no teste supera 10× (ou 5×) a maior receita semanal do próprio "
+           "vendedor no treino, e quanto do erro vem deles; (ii) efeito do corte das previsões negativas em zero."),
+    ("code", '''pred_sec = A.carregar_df("secundaria_pred_vendedor_estat")     # previsões brutas da 08a
+arq = A.saidas / "secundaria_metricas_agregado.csv"
+mase_ref = None
+if arq.exists():
+    t = pd.read_csv(arq)
+    t = t.loc[t["modelo"].str.endswith("(soma por vendedor)")]
+    mase_ref = dict(zip(t["modelo"].str.replace(" (soma por vendedor)", "", regex=False), t["MASE"]))
+diag_ext, casos_ext = CP.diagnostico_estat_extremos(pred_sec, comparison, hist, perfis, mase_ref)
+A.tabela(diag_ext, "diagnostico_arimax_extremos.csv"); A.tabela(casos_ext, "diagnostico_arimax_piores_vendedores.csv")
+display(diag_ext.round(3)); display(casos_ext.round(1))'''),
    ])
