@@ -184,3 +184,74 @@ def diagnostico_estat_extremos(pred, comparison, hist, perfis, mase_ref=None, fa
         pior.insert(0, "modelo", m)
         casos.append(pior)
     return pd.DataFrame(resumo), pd.concat(casos, ignore_index=True)
+
+
+# ------------------------------------------------------------------ 7. vendedores sem venda no teste
+def vendedores_inativos_teste(serie, perfis, comparison, hist, train_target_end, modelos, cortes=("2018-04-30",)):
+    """Quantos vendedores da amostra não venderam no teste e como as métricas ficam só com os ativos."""
+    from .metricas import summarize_sellers
+    per = perfis.set_index("seller_id")["perfil"].astype(str)
+    te = serie.loc[serie["week_start"] > train_target_end]
+    s = te.groupby("seller_id").agg(receita=("revenue", "sum"))
+    s["ultima_venda"] = te.loc[te["revenue"] > 0].groupby("seller_id")["week_start"].max()
+    s["perfil"] = s.index.map(per)
+    inat = s.index[s["receita"] == 0]
+    contagem = [{"grupo": "sem venda nas 34 semanas do teste", "vendedores": len(inat),
+                 **{p: int((s.loc[inat, "perfil"] == p).sum()) for p in ["intermitente", "medio", "regular"]}}]
+    for c in cortes:
+        ids = s.index[(s["receita"] > 0) & (s["ultima_venda"] < pd.Timestamp(c))]
+        contagem.append({"grupo": f"venderam no teste, mas não depois de {pd.Timestamp(c):%d/%m/%Y}",
+                         "vendedores": len(ids), **{p: int((s.loc[ids, "perfil"] == p).sum())
+                                                    for p in ["intermitente", "medio", "regular"]}})
+    total = s["perfil"].value_counts()
+    contagem.append({"grupo": "amostra", "vendedores": len(s), **{p: int(total.get(p, 0))
+                                                                 for p in ["intermitente", "medio", "regular"]}})
+    scale = seller_scales(hist, train_target_end)
+    y = TARGET
+    linhas = []
+    for nome, df in [("todos", comparison), ("só ativos no teste", comparison.loc[~comparison["seller_id"].isin(inat)])]:
+        _, per_v = evaluate_seller_level(df, modelos, scale)
+        resumo = summarize_sellers(per_v).set_index("modelo")
+        agg = df.groupby("target_week")[[y] + [f"pred_{m}" for m in modelos]].sum()
+        mae_naive = (df[y] - df["pred_Naive"]).abs().mean()
+        for m in modelos:
+            mae = (df[y] - df[f"pred_{m}"]).abs().mean()
+            linhas.append({"conjunto": nome, "vendedores": df["seller_id"].nunique(), "modelo": m,
+                           "MASE_medio_vendedor": resumo.loc[m, "MASE_media"],
+                           "ganho_MAE_vs_Naive_%": 100 * (1 - mae / mae_naive),
+                           "%_vendedores_com_ganho": 100 * resumo.loc[m, "prop_vendedores_melhora"],
+                           "WAPE_agregado": (agg[y] - agg[f"pred_{m}"]).abs().sum() / agg[y].sum(),
+                           "vies_total_%": 100 * (agg[f"pred_{m}"].sum() / agg[y].sum() - 1)})
+    por_perfil = []
+    escolhido = modelos[1]
+    for nome, df in [("todos", comparison), ("só ativos no teste", comparison.loc[~comparison["seller_id"].isin(inat)])]:
+        for p in ["intermitente", "medio", "regular"]:
+            d = df.loc[df["seller_id"].map(per) == p]
+            _, pv = evaluate_seller_level(d, ["Naive", escolhido], scale)
+            r = summarize_sellers(pv).set_index("modelo")
+            mae = (d[y] - d[f"pred_{escolhido}"]).abs().mean()
+            mae_n = (d[y] - d["pred_Naive"]).abs().mean()
+            por_perfil.append({"conjunto": nome, "perfil": p, "vendedores": d["seller_id"].nunique(),
+                               f"MASE_{escolhido}": r.loc[escolhido, "MASE_media"], "MASE_Naive": r.loc["Naive", "MASE_media"],
+                               "ganho_MAE_vs_Naive_%": 100 * (1 - mae / mae_n),
+                               "%_vendedores_com_ganho": 100 * r.loc[escolhido, "prop_vendedores_melhora"]})
+    return pd.DataFrame(contagem), pd.DataFrame(linhas), pd.DataFrame(por_perfil)
+
+
+# ------------------------------------------------------------------ 8. faixas das variáveis macro
+def faixas_macro(exog_semanal, macro_cols, panel_start, train_target_end, test_end):
+    """Mínimo e máximo de cada variável macro (já com a defasagem de 2 meses) nas semanas-alvo do treino e do
+    teste, e a proporção de semanas do teste fora da faixa do treino."""
+    e = exog_semanal.set_index("target_week")
+    tr = e.loc[(e.index >= panel_start) & (e.index <= train_target_end)]
+    te = e.loc[(e.index > train_target_end) & (e.index <= test_end)]
+    rows = []
+    for c in macro_cols:
+        lo, hi = tr[c].min(), tr[c].max()
+        rows.append({"variavel": c, "treino_min": lo, "treino_max": hi, "teste_min": te[c].min(), "teste_max": te[c].max(),
+                     "%_semanas_teste_abaixo": 100 * float((te[c] < lo).mean()),
+                     "%_semanas_teste_acima": 100 * float((te[c] > hi).mean()),
+                     "%_semanas_teste_fora": 100 * float(((te[c] < lo) | (te[c] > hi)).mean()),
+                     "meses_referencia_treino": f"{pd.Timestamp(tr['macro_reference_month'].min()):%m/%Y} a {pd.Timestamp(tr['macro_reference_month'].max()):%m/%Y}",
+                     "meses_referencia_teste": f"{pd.Timestamp(te['macro_reference_month'].min()):%m/%Y} a {pd.Timestamp(te['macro_reference_month'].max()):%m/%Y}"})
+    return pd.DataFrame(rows)

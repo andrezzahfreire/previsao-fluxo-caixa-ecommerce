@@ -863,7 +863,7 @@ nb("13_complementos_texto", "13 — Complementos para o texto do TCC",
    "só lê artefatos gravados pelos notebooks 01–05. Usa a série completa e as previsões do teste com "
    "finalidade *exploratória* (acesso registrado), depois da seleção congelada.  \n"
    "**Grava:** `fig_funil_coorte.png`, `fig_receita_cortes.png`, `funil_coorte.csv`, `tabela_w_perfis.csv`, "
-   "`mase_validacao_vs_teste.csv`, `ablacao_exogenas.csv`, `diagnostico_arimax_extremos.csv`, `diagnostico_arimax_piores_vendedores.csv`.",
+   "`mase_validacao_vs_teste.csv`, `ablacao_exogenas.csv`, `diagnostico_arimax_extremos.csv`, `diagnostico_arimax_piores_vendedores.csv`, `vendedores_inativos_teste.csv`, `metricas_teste_so_ativos.csv`, `metricas_teste_so_ativos_por_perfil.csv`, `faixas_macro_treino_teste.csv`.",
    [
     ("code", '''from tcc_fluxo import complementos as CP, painel as P, graficos
 from tcc_fluxo.cv import origens_cv
@@ -955,4 +955,18 @@ if arq.exists():
 diag_ext, casos_ext = CP.diagnostico_estat_extremos(pred_sec, comparison, hist, perfis, mase_ref)
 A.tabela(diag_ext, "diagnostico_arimax_extremos.csv"); A.tabela(casos_ext, "diagnostico_arimax_piores_vendedores.csv")
 display(diag_ext.round(3)); display(casos_ext.round(1))'''),
+    ("md", "## 7. Vendedores sem venda no teste (seções 5.1, 5.3, 5.4 e 6.4)\\n"
+           "Quantos vendedores da amostra não tiveram nenhuma venda aprovada nas 34 semanas de 2018, e como ficam as "
+           "métricas do teste quando eles são retirados. A seleção não muda: é só uma leitura complementar."),
+    ("code", '''MODELOS_ATIVOS = ["Naive", CHOSEN, "MediaMovel4", "HistGB_Poisson", "CatBoost_MAE"]
+cont_inat, met_ativos, perfil_ativos = CP.vendedores_inativos_teste(serie, perfis, comparison, hist, C.TRAIN_TARGET_END,
+                                                     [m for m in MODELOS_ATIVOS if f"pred_{m}" in comparison])
+A.tabela(cont_inat, "vendedores_inativos_teste.csv"); A.tabela(met_ativos, "metricas_teste_so_ativos.csv")
+A.tabela(perfil_ativos, "metricas_teste_so_ativos_por_perfil.csv")
+display(cont_inat); display(met_ativos.round(3)); display(perfil_ativos.round(3))'''),
+    ("md", "## 8. Faixas das variáveis macroeconômicas: treino × teste (seções 5.6 e 5.7)"),
+    ("code", '''exog_sem = A.carregar_df("exogenas_semanais")
+macro_cols = A.carregar_json("painel_spec")["MACRO_FEATURES"]
+fx = CP.faixas_macro(exog_sem, macro_cols, C.PANEL_START, C.TRAIN_TARGET_END, TEST_END)
+A.tabela(fx, "faixas_macro_treino_teste.csv"); display(fx.round(2))'''),
    ])
